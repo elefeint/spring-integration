@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2019 the original author or authors.
+ * Copyright 2002-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import org.junit.After;
 import org.junit.Test;
-
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.channel.PublishSubscribeChannel;
 import org.springframework.integration.handler.ServiceActivatingHandler;
@@ -31,6 +29,7 @@ import org.springframework.integration.test.util.TestUtils;
 import org.springframework.integration.test.util.TestUtils.TestApplicationContext;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageDeliveryException;
+import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.support.ErrorMessage;
 import org.springframework.messaging.support.GenericMessage;
 
@@ -67,6 +66,7 @@ public class MessageProducerSupportTests {
 		mps.afterPropertiesSet();
 		mps.start();
 		mps.sendMessage(new GenericMessage<>("hello"));
+
 	}
 
 	@Test(expected = MessageDeliveryException.class)
@@ -120,6 +120,50 @@ public class MessageProducerSupportTests {
 		assertThat(exception.getFailedMessage()).isEqualTo(message);
 	}
 
+	@Test(expected = MessagingException.class)
+	public void validateExceptionIfRethrowingErrorChannelButContextClosed() {
+		this.context.refresh();
+		DirectChannel outChannel = new DirectChannel();
+		PublishSubscribeChannel errorChannel = new PublishSubscribeChannel();
+		FailingErrorService errorService = new FailingErrorService(); // change
+		ServiceActivatingHandler handler = new ServiceActivatingHandler(errorService);
+		handler.setBeanFactory(this.context);
+		handler.afterPropertiesSet();
+		errorChannel.subscribe(handler);
+
+		MessageProducerSupport mps = new MessageProducerSupport() {
+
+		};
+
+		outChannel.subscribe(message -> {
+			context.close();
+			errorChannel.unsubscribe(handler);
+			mps.stop();
+			throw new RuntimeException("problems");
+		});
+
+		mps.setOutputChannel(outChannel);
+		mps.setErrorChannel(errorChannel);
+		mps.setBeanFactory(this.context);
+		mps.afterPropertiesSet();
+		mps.start();
+		Message<?> message = new GenericMessage<>("hello");
+		mps.sendMessage(message);
+	}
+
+	private static class FailingErrorService {
+
+		FailingErrorService() {
+			super();
+		}
+
+		@SuppressWarnings("unused")
+		public void handleErrorMessage(Message<?> errorMessage) {
+			throw new RuntimeException("error service rethrows " + errorMessage.getPayload());
+		}
+
+	}
+
 	@Test
 	public void testWithChannelName() {
 		DirectChannel outChannel = new DirectChannel();
@@ -163,6 +207,8 @@ public class MessageProducerSupportTests {
 		}
 
 	}
+
+
 
 	private static class CustomEndpoint extends AbstractEndpoint {
 

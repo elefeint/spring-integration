@@ -208,6 +208,13 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 			this.messagingTemplate.send(getRequiredOutputChannel(), message);
 		}
 		catch (RuntimeException ex) {
+/* Uncomment to fix the test
+			if (!this.isRunning()) {
+				throw ex;
+			}
+ */
+
+
 			if (!sendErrorMessageIfNecessary(message, ex)) {
 				throw ex;
 			}
